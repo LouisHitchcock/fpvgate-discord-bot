@@ -1,0 +1,15 @@
+[Unit]
+Description=FPVGate Discord Bot
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/fpvgate-discord-bot
+ExecStart=/home/ubuntu/fpvgate-discord-bot/venv/bin/python bot.py
+Restart=always
+RestartSec=10
+EnvironmentFile=/home/ubuntu/fpvgate-discord-bot/.env
+
+[Install]
+WantedBy=multi-user.target
