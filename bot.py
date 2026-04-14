@@ -17,6 +17,8 @@ logging.basicConfig(
 )
 log = logging.getLogger("fpvgate-bot")
 
+VERSION = "1.0.0"
+
 COGS = [
     "cogs.reaction_roles",
     "cogs.welcome",
@@ -81,6 +83,10 @@ def main():
         bot.tree.copy_global_to(guild=ctx.guild)
         synced = await bot.tree.sync(guild=ctx.guild)
         await ctx.send(f"Synced {len(synced)} commands to this server.")
+
+    @bot.command()
+    async def version(ctx: commands.Context):
+        await ctx.send(f"FPVGate Bot v{VERSION}")
 
     bot.run(token)
 
