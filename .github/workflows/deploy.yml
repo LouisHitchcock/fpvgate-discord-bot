@@ -1,0 +1,25 @@
+name: Deploy Bot
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to Oracle Cloud
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            cd /home/ubuntu/fpvgate-discord-bot
+            git fetch origin master
+            git reset --hard origin/master
+            source venv/bin/activate
+            pip install -r requirements.txt
+            sudo systemctl restart fpvgate-bot
+            echo "Deployed at $(date)"
