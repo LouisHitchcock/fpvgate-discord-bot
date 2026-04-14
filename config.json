@@ -25,9 +25,14 @@
                 "channel_id": 1493577606698897418,
                 "message_id": 1493602085399298248,
                 "role_id": 1489255658728591490
+            },
+            {
+                "channel_id": 1489251276717031575,
+                "message_id": 1493605735068733581,
+                "role_id": 1489255658728591490
             }
         ],
-        "roles_message_url": "https://discord.com/channels/1488579267775430686/1493577606698897418/1493602085399298248"
+        "roles_message_url": "https://discord.com/channels/1488579267775430686/1489251276717031575/1493605735068733581"
     },
     "welcome": {
         "enabled": true,
