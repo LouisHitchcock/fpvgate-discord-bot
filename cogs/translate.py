@@ -7,28 +7,124 @@ from deep_translator import GoogleTranslator
 
 log = logging.getLogger("fpvgate-bot.translate")
 
-# Maps flag emoji to language codes (ISO 639-1)
-FLAG_TO_LANG = {
-    "\U0001F1FA\U0001F1F8": "en",       # US
-    "\U0001F1EC\U0001F1E7": "en",       # GB
-    "\U000E0067\U000E0062\U000E0065\U000E006E\U000E0067\U000E007F": "en",  # England
-    "\U0001F1EB\U0001F1F7": "fr",       # France
-    "\U0001F1EA\U0001F1F8": "es",       # Spain
-    "\U0001F1E9\U0001F1EA": "de",       # Germany
-    "\U0001F1EE\U0001F1F9": "it",       # Italy
-    "\U0001F1F5\U0001F1F9": "pt",       # Portugal
-    "\U0001F1E7\U0001F1F7": "pt",       # Brazil
-    "\U0001F1F7\U0001F1FA": "ru",       # Russia
-    "\U0001F1EF\U0001F1F5": "ja",       # Japan
-    "\U0001F1F0\U0001F1F7": "ko",       # South Korea
-    "\U0001F1E8\U0001F1F3": "zh-CN",    # China
-    "\U0001F1F3\U0001F1F1": "nl",       # Netherlands
-    "\U0001F1F5\U0001F1F1": "pl",       # Poland
-    "\U0001F1F8\U0001F1EA": "sv",       # Sweden
-    "\U0001F1E8\U0001F1FF": "cs",       # Czech Republic
-    "\U0001F1F9\U0001F1F7": "tr",       # Turkey
-    "\U0001F1FA\U0001F1E6": "uk",       # Ukraine
+# Regional indicator symbols occupy U+1F1E6 (A) through U+1F1FF (Z).
+# Two of these combined form a country flag whose letters are the
+# ISO 3166-1 alpha-2 country code (e.g. 🇫🇷 => FR).
+_REGIONAL_INDICATOR_BASE = 0x1F1E6
+
+# ISO 3166-1 alpha-2 country code -> Google Translate language code.
+# For multilingual countries, the most widely used / most likely
+# translation target is chosen. Territories fall back to the language
+# of their parent country. Unsupported-by-Google languages are mapped
+# to the nearest supported one (e.g. Greenlandic -> Danish).
+COUNTRY_TO_LANG = {
+    # ---- Africa ----
+    "DZ": "ar", "AO": "pt", "BJ": "fr", "BW": "en", "BF": "fr",
+    "BI": "fr", "CM": "fr", "CV": "pt", "CF": "fr", "TD": "fr",
+    "KM": "ar", "CG": "fr", "CD": "fr", "CI": "fr", "DJ": "fr",
+    "EG": "ar", "GQ": "es", "ER": "ti", "SZ": "en", "ET": "am",
+    "GA": "fr", "GM": "en", "GH": "en", "GN": "fr", "GW": "pt",
+    "KE": "sw", "LS": "en", "LR": "en", "LY": "ar", "MG": "mg",
+    "MW": "en", "ML": "fr", "MR": "ar", "MU": "en", "MA": "ar",
+    "MZ": "pt", "NA": "en", "NE": "fr", "NG": "en", "RW": "rw",
+    "ST": "pt", "SN": "fr", "SC": "fr", "SL": "en", "SO": "so",
+    "ZA": "af", "SS": "en", "SD": "ar", "TZ": "sw", "TG": "fr",
+    "TN": "ar", "UG": "en", "EH": "ar", "ZM": "en", "ZW": "en",
+    "SH": "en",
+
+    # ---- Americas ----
+    "AG": "en", "AR": "es", "BS": "en", "BB": "en", "BZ": "en",
+    "BO": "es", "BR": "pt", "CA": "en", "CL": "es", "CO": "es",
+    "CR": "es", "CU": "es", "DM": "en", "DO": "es", "EC": "es",
+    "SV": "es", "GD": "en", "GT": "es", "GY": "en", "HT": "ht",
+    "HN": "es", "JM": "en", "MX": "es", "NI": "es", "PA": "es",
+    "PY": "es", "PE": "es", "KN": "en", "LC": "en", "VC": "en",
+    "SR": "nl", "TT": "en", "US": "en", "UY": "es", "VE": "es",
+    # Territories
+    "AI": "en", "AW": "nl", "BM": "en", "BQ": "nl", "BV": "no",
+    "IO": "en", "VG": "en", "KY": "en", "CW": "nl", "FK": "en",
+    "GF": "fr", "GL": "da", "GP": "fr", "MQ": "fr", "MS": "en",
+    "PR": "es", "BL": "fr", "MF": "fr", "PM": "fr", "SX": "nl",
+    "GS": "en", "TC": "en", "VI": "en", "UM": "en",
+
+    # ---- Asia ----
+    "AF": "ps", "AM": "hy", "AZ": "az", "BH": "ar", "BD": "bn",
+    "BT": "en", "BN": "ms", "KH": "km", "CN": "zh-CN", "CY": "el",
+    "GE": "ka", "HK": "zh-TW", "IN": "hi", "ID": "id", "IR": "fa",
+    "IQ": "ar", "IL": "iw", "JP": "ja", "JO": "ar", "KZ": "kk",
+    "KW": "ar", "KG": "ky", "LA": "lo", "LB": "ar", "MO": "zh-TW",
+    "MY": "ms", "MV": "en", "MN": "mn", "MM": "my", "NP": "ne",
+    "KP": "ko", "OM": "ar", "PK": "ur", "PS": "ar", "PH": "tl",
+    "QA": "ar", "SA": "ar", "SG": "en", "KR": "ko", "LK": "si",
+    "SY": "ar", "TW": "zh-TW", "TJ": "tg", "TH": "th", "TL": "pt",
+    "TR": "tr", "TM": "tk", "AE": "ar", "UZ": "uz", "VN": "vi",
+    "YE": "ar",
+
+    # ---- Europe ----
+    "AL": "sq", "AD": "ca", "AT": "de", "BY": "be", "BE": "nl",
+    "BA": "bs", "BG": "bg", "HR": "hr", "CZ": "cs", "DK": "da",
+    "EE": "et", "FO": "da", "FI": "fi", "FR": "fr", "DE": "de",
+    "GI": "en", "GR": "el", "GG": "en", "HU": "hu", "IS": "is",
+    "IE": "en", "IM": "en", "IT": "it", "JE": "en", "XK": "sq",
+    "LV": "lv", "LI": "de", "LT": "lt", "LU": "fr", "MT": "mt",
+    "MD": "ro", "MC": "fr", "ME": "sr", "NL": "nl", "MK": "mk",
+    "NO": "no", "PL": "pl", "PT": "pt", "RO": "ro", "RU": "ru",
+    "SM": "it", "RS": "sr", "SK": "sk", "SI": "sl", "ES": "es",
+    "SE": "sv", "CH": "de", "UA": "uk", "GB": "en", "VA": "it",
+    "AX": "sv", "SJ": "no",
+
+    # ---- Oceania ----
+    "AU": "en", "FJ": "en", "KI": "en", "MH": "en", "FM": "en",
+    "NR": "en", "NZ": "en", "PW": "en", "PG": "en", "WS": "sm",
+    "SB": "en", "TO": "en", "TV": "en", "VU": "en",
+    # Territories
+    "AS": "en", "CX": "en", "CC": "en", "CK": "en", "TF": "fr",
+    "PF": "fr", "GU": "en", "NC": "fr", "NU": "en", "NF": "en",
+    "MP": "en", "PN": "en", "TK": "en", "WF": "fr", "YT": "fr",
+    "RE": "fr",
+
+    # ---- Other ----
+    "AQ": "en",
 }
+
+
+def _tag_flag(subdivision: str, with_base: bool = True) -> str:
+    """Build a subdivision flag emoji from a tag code like 'gbeng'."""
+    tags = "".join(chr(0xE0000 + ord(c)) for c in subdivision)
+    cancel = "\U000E007F"
+    return (("\U0001F3F4" if with_base else "") + tags + cancel)
+
+
+# Tag-sequence subdivision flags. We register both forms (with and without
+# the U+1F3F4 waving-black-flag base) because Discord payloads have been
+# observed in both variants historically.
+SUBDIVISION_FLAGS = {
+    _tag_flag("gbeng"): "en",                 # England
+    _tag_flag("gbsct"): "en",                 # Scotland
+    _tag_flag("gbwls"): "cy",                 # Wales (Welsh)
+    _tag_flag("gbeng", with_base=False): "en",
+    _tag_flag("gbsct", with_base=False): "en",
+    _tag_flag("gbwls", with_base=False): "cy",
+}
+
+
+def flag_to_lang(emoji: str) -> str | None:
+    """Return a Google Translate language code for a flag emoji, or None."""
+    # Subdivision (tag-sequence) flags first.
+    if emoji in SUBDIVISION_FLAGS:
+        return SUBDIVISION_FLAGS[emoji]
+
+    # Regional-indicator country flags are exactly two code points.
+    if len(emoji) == 2:
+        code = ""
+        for ch in emoji:
+            cp = ord(ch)
+            if not (0x1F1E6 <= cp <= 0x1F1FF):
+                return None
+            code += chr(cp - _REGIONAL_INDICATOR_BASE + ord("A"))
+        return COUNTRY_TO_LANG.get(code)
+
+    return None
 
 
 class Translate(commands.Cog):
@@ -47,9 +143,9 @@ class Translate(commands.Cog):
 
         emoji = str(payload.emoji)
         log.info(f"Reaction received: {repr(emoji)} from user {payload.user_id}")
-        target_lang = FLAG_TO_LANG.get(emoji)
+        target_lang = flag_to_lang(emoji)
         if target_lang is None:
-            log.info(f"Emoji {repr(emoji)} not in flag map, ignoring.")
+            log.info(f"Emoji {repr(emoji)} not recognised as a flag, ignoring.")
             return
 
         log.info(f"Translating to {target_lang}")
