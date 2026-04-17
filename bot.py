@@ -6,16 +6,14 @@ import discord
 from discord.ext import commands
 from dotenv import load_dotenv
 
+from logger import setup_logging
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 load_dotenv(os.path.join(BASE_DIR, ".env"))
 
 CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-)
-log = logging.getLogger("fpvgate-bot")
+log = setup_logging()
 
 VERSION = "1.0.0"
 
