@@ -65,6 +65,13 @@ class Translate(commands.Cog):
         try:
             message = await channel.fetch_message(payload.message_id)
         except discord.NotFound:
+            log.warning(f"Message {payload.message_id} not found")
+            return
+        except discord.Forbidden:
+            log.error(f"Missing permissions to fetch message in channel {payload.channel_id}")
+            return
+        except Exception as e:
+            log.error(f"Failed to fetch message: {e}")
             return
 
         text = message.content.strip()
@@ -92,7 +99,14 @@ class Translate(commands.Cog):
         )
         embed.set_footer(text=f"Translated to {display_lang.title()}")
 
-        await message.reply(embed=embed, mention_author=False)
+        try:
+            await message.reply(embed=embed, mention_author=False)
+        except discord.Forbidden:
+            log.error(f"Missing permission to reply in channel {payload.channel_id}")
+            return
+        except Exception as e:
+            log.error(f"Failed to send translation reply: {e}")
+            return
         log.info(f"Translated message {message.id} to {target_lang}")
 
     @app_commands.command(name="translate", description="Translate text to a given language.")
