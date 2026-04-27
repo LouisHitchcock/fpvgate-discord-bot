@@ -1,3 +1,4 @@
+import asyncio
 import logging
 
 import discord
@@ -130,6 +131,23 @@ def flag_to_lang(emoji: str) -> str | None:
 class Translate(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        self._translation_replies: dict[tuple[int, str], int] = {}
+        self._active_translations: set[tuple[int, str]] = set()
+        self._translation_lock = asyncio.Lock()
+
+    @staticmethod
+    def _reaction_key(message_id: int, emoji: str) -> tuple[int, str]:
+        return (message_id, emoji)
+
+    async def _get_channel(self, channel_id: int):
+        channel = self.bot.get_channel(channel_id)
+        if channel is None:
+            try:
+                channel = await self.bot.fetch_channel(channel_id)
+            except Exception:
+                log.error(f"Could not fetch channel {channel_id}")
+                return None
+        return channel
 
     @commands.Cog.listener()
     async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
@@ -148,62 +166,139 @@ class Translate(commands.Cog):
             log.info(f"Emoji {repr(emoji)} not recognised as a flag, ignoring.")
             return
 
+        reaction_key = self._reaction_key(payload.message_id, emoji)
+        async with self._translation_lock:
+            if reaction_key in self._translation_replies:
+                log.info(f"Translation for message {payload.message_id} and {repr(emoji)} already exists")
+                return
+            if reaction_key in self._active_translations:
+                log.info(f"Translation for message {payload.message_id} and {repr(emoji)} is already in progress")
+                return
+            self._active_translations.add(reaction_key)
+
         log.info(f"Translating to {target_lang}")
 
-        channel = self.bot.get_channel(payload.channel_id)
-        if channel is None:
-            try:
-                channel = await self.bot.fetch_channel(payload.channel_id)
-            except Exception:
-                log.error(f"Could not fetch channel {payload.channel_id}")
+        try:
+            channel = await self._get_channel(payload.channel_id)
+            if channel is None:
                 return
+
+            try:
+                message = await channel.fetch_message(payload.message_id)
+            except discord.NotFound:
+                log.warning(f"Message {payload.message_id} not found")
+                return
+            except discord.Forbidden:
+                log.error(f"Missing permissions to fetch message in channel {payload.channel_id}")
+                return
+            except Exception as e:
+                log.error(f"Failed to fetch message: {e}")
+                return
+
+            text = message.content.strip()
+            if not text:
+                return
+
+            try:
+                translated = GoogleTranslator(source="auto", target=target_lang).translate(text)
+            except Exception as e:
+                log.error(f"Translation failed: {e}")
+                return
+
+            if not translated or translated.lower() == text.lower():
+                return
+
+            lang_name = GoogleTranslator().get_supported_languages(as_dict=True)
+            display_lang = next(
+                (name for name, code in lang_name.items() if code == target_lang),
+                target_lang,
+            )
+
+            embed = discord.Embed(
+                description=translated,
+                color=discord.Color.greyple(),
+            )
+            embed.set_footer(text=f"Translated to {display_lang.title()}")
+
+            try:
+                reply = await message.reply(embed=embed, mention_author=False)
+            except discord.Forbidden:
+                log.error(f"Missing permission to reply in channel {payload.channel_id}")
+                return
+            except Exception as e:
+                log.error(f"Failed to send translation reply: {e}")
+                return
+
+            async with self._translation_lock:
+                self._translation_replies[reaction_key] = reply.id
+            log.info(f"Translated message {message.id} to {target_lang}")
+        finally:
+            async with self._translation_lock:
+                self._active_translations.discard(reaction_key)
+
+    @commands.Cog.listener()
+    async def on_raw_reaction_remove(self, payload: discord.RawReactionActionEvent):
+        emoji = str(payload.emoji)
+        target_lang = flag_to_lang(emoji)
+        if target_lang is None:
+            return
+
+        reaction_key = self._reaction_key(payload.message_id, emoji)
+        async with self._translation_lock:
+            reply_id = self._translation_replies.get(reaction_key)
+
+        if reply_id is None:
+            return
+
+        channel = await self._get_channel(payload.channel_id)
+        if channel is None:
+            return
 
         try:
             message = await channel.fetch_message(payload.message_id)
         except discord.NotFound:
-            log.warning(f"Message {payload.message_id} not found")
+            async with self._translation_lock:
+                self._translation_replies.pop(reaction_key, None)
             return
         except discord.Forbidden:
             log.error(f"Missing permissions to fetch message in channel {payload.channel_id}")
             return
         except Exception as e:
-            log.error(f"Failed to fetch message: {e}")
+            log.error(f"Failed to fetch message during reaction removal: {e}")
             return
 
-        text = message.content.strip()
-        if not text:
+        reaction_still_present = any(
+            str(reaction.emoji) == emoji and reaction.count > 0
+            for reaction in message.reactions
+        )
+        if reaction_still_present:
             return
 
         try:
-            translated = GoogleTranslator(source="auto", target=target_lang).translate(text)
-        except Exception as e:
-            log.error(f"Translation failed: {e}")
+            reply = await channel.fetch_message(reply_id)
+        except discord.NotFound:
+            async with self._translation_lock:
+                self._translation_replies.pop(reaction_key, None)
             return
-
-        if not translated or translated.lower() == text.lower():
-            return
-
-        lang_name = GoogleTranslator().get_supported_languages(as_dict=True)
-        display_lang = next(
-            (name for name, code in lang_name.items() if code == target_lang),
-            target_lang,
-        )
-
-        embed = discord.Embed(
-            description=translated,
-            color=discord.Color.greyple(),
-        )
-        embed.set_footer(text=f"Translated to {display_lang.title()}")
-
-        try:
-            await message.reply(embed=embed, mention_author=False)
         except discord.Forbidden:
-            log.error(f"Missing permission to reply in channel {payload.channel_id}")
+            log.error(f"Missing permissions to fetch translation reply in channel {payload.channel_id}")
             return
         except Exception as e:
-            log.error(f"Failed to send translation reply: {e}")
+            log.error(f"Failed to fetch translation reply: {e}")
             return
-        log.info(f"Translated message {message.id} to {target_lang}")
+
+        try:
+            await reply.delete()
+        except discord.Forbidden:
+            log.error(f"Missing permissions to delete translation reply in channel {payload.channel_id}")
+            return
+        except Exception as e:
+            log.error(f"Failed to delete translation reply: {e}")
+            return
+
+        async with self._translation_lock:
+            self._translation_replies.pop(reaction_key, None)
+        log.info(f"Deleted translation reply for message {payload.message_id} and {repr(emoji)}")
 
     @app_commands.command(name="translate", description="Translate text to a given language.")
     @app_commands.describe(
