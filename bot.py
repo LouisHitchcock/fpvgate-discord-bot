@@ -21,6 +21,7 @@ COGS = [
     "cogs.reaction_roles",
     "cogs.welcome",
     "cogs.translate",
+    "cogs.instagram_feed",
 ]
 
 

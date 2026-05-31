@@ -42,5 +42,10 @@
     },
     "translate": {
         "enabled": true
+    },
+    "instagram_feeds": {
+        "ig_username": "",
+        "ig_password": "",
+        "accounts": []
     }
 }
