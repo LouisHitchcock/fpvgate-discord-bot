@@ -1,14 +1,18 @@
 import asyncio
 import logging
+import os
 from datetime import datetime, timezone
 
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 from instagrapi import Client
-from instagrapi.exceptions import LoginRequired, ClientError
+from instagrapi.exceptions import LoginRequired, ChallengeRequired, ClientError
 
 log = logging.getLogger("fpvgate-bot.instagram_feed")
+
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SESSION_DIR = os.path.join(BASE_DIR, "instagram_sessions")
 
 
 class InstagramFeed(commands.Cog):
@@ -16,6 +20,7 @@ class InstagramFeed(commands.Cog):
         self.bot = bot
         self._last_post_ids: set[str] = set()
         self._client: Client | None = None
+        os.makedirs(SESSION_DIR, exist_ok=True)
         self.check_feeds.start()
 
     def cog_unload(self):
@@ -24,21 +29,33 @@ class InstagramFeed(commands.Cog):
     def _get_cfg(self) -> dict:
         return self.bot.config.get("instagram_feeds", {})
 
+    def _session_file(self, username: str) -> str:
+        return os.path.join(SESSION_DIR, f"{username}.json")
+
     def _ensure_client(self, cfg: dict) -> Client | None:
         if self._client is not None:
             return self._client
 
-        username = cfg.get("ig_username") or self.bot.config.get("instagram_feeds", {}).get("ig_username")
-        password = cfg.get("ig_password") or self.bot.config.get("instagram_feeds", {}).get("ig_password")
+        username = cfg.get("ig_username")
+        password = cfg.get("ig_password")
         if not username or not password:
             return None
 
         try:
             client = Client()
+            session_path = self._session_file(username)
+            if os.path.exists(session_path):
+                client.load_settings(session_path)
+                log.info(f"Loaded saved session for {username}")
+
             client.login(username, password)
+            client.dump_settings(session_path)
             self._client = client
-            log.info("Logged into Instagram")
+            log.info(f"Logged into Instagram as {username}")
             return client
+        except ChallengeRequired:
+            log.warning(f"Instagram challenge required for {username}. Use /submit_ig_code with the code from email/SMS.")
+            return None
         except Exception as e:
             log.error(f"Instagram login failed: {e}")
             return None
@@ -58,8 +75,10 @@ class InstagramFeed(commands.Cog):
             client.get_timeline_feed()
         except LoginRequired:
             try:
+                username = cfg.get("ig_username", "")
                 client.login(cfg.get("ig_username"), cfg.get("ig_password"))
                 self._client = client
+                client.dump_settings(self._session_file(username))
             except Exception as e:
                 log.error(f"Instagram re-login failed: {e}")
                 return
@@ -234,7 +253,10 @@ class InstagramFeed(commands.Cog):
         cfg["ig_username"] = username
         cfg["ig_password"] = password
 
-        # Reset client so it re-logs in next cycle
+        # Remove old session so we re-login fresh
+        session_path = self._session_file(username)
+        if os.path.exists(session_path):
+            os.remove(session_path)
         self._client = None
 
         from bot import save_config
@@ -245,6 +267,41 @@ class InstagramFeed(commands.Cog):
             ephemeral=True,
         )
         log.info("Instagram credentials updated")
+
+    @app_commands.command(
+        name="submit_ig_code",
+        description="Submit the Instagram verification code sent to your email/phone.",
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def submit_code(self, interaction: discord.Interaction, code: str):
+        cfg = self._get_cfg()
+        username = cfg.get("ig_username")
+        if not username:
+            await interaction.response.send_message(
+                "No Instagram credentials configured. Use /set_instagram_login first.",
+                ephemeral=True,
+            )
+            return
+
+        try:
+            client = Client()
+            session_path = self._session_file(username)
+            if os.path.exists(session_path):
+                client.load_settings(session_path)
+            client.login(username, cfg.get("ig_password", ""), verification_code=code)
+            client.dump_settings(session_path)
+            self._client = client
+            await interaction.response.send_message(
+                "Instagram verification successful! The bot is now logged in.",
+                ephemeral=True,
+            )
+            log.info(f"Instagram challenge resolved for {username}")
+        except Exception as e:
+            await interaction.response.send_message(
+                f"Verification failed: {e}",
+                ephemeral=True,
+            )
+            log.error(f"Instagram challenge failed for {username}: {e}")
 
 
 async def setup(bot: commands.Bot):
