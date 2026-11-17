@@ -154,22 +154,26 @@ class InstagramFeed(commands.Cog):
         except InstagramAPIError:
             pass
 
-        # 2. Facebook Page token for a Page with a linked Instagram account
+        # 2. Facebook Page token for a Page with a linked Instagram account.
+        #    (On a user token this field doesn't exist and Meta returns error #100.)
         try:
             me = await self._request(FB_GRAPH_URL, "me", token, fields=f"id,name,{IG_ACCOUNT_FIELDS}")
-        except InstagramAPIError as e:
-            raise InstagramAPIError(f"Not a valid Instagram or Facebook token ({e})", e.code)
-        ig = me.get("instagram_business_account")
-        if ig:
-            return {
-                "mode": "facebook", "token": token, "ig_user_id": ig["id"],
-                "username": ig.get("username"), "expires_at": await self._fb_expiry(token),
-            }
+            ig = me.get("instagram_business_account")
+            if ig:
+                return {
+                    "mode": "facebook", "token": token, "ig_user_id": ig["id"],
+                    "username": ig.get("username"), "expires_at": await self._fb_expiry(token),
+                }
+        except InstagramAPIError:
+            pass
 
         # 3. Facebook user token: find the Page linked to Instagram and use its token
-        pages = await self._request(
-            FB_GRAPH_URL, "me/accounts", token, fields=f"name,access_token,{IG_ACCOUNT_FIELDS}"
-        )
+        try:
+            pages = await self._request(
+                FB_GRAPH_URL, "me/accounts", token, fields=f"name,access_token,{IG_ACCOUNT_FIELDS}"
+            )
+        except InstagramAPIError as e:
+            raise InstagramAPIError(f"Not a valid Instagram or Facebook token ({e})", e.code)
         linked = [p for p in pages.get("data", []) if p.get("instagram_business_account")]
         if not linked:
             raise InstagramAPIError(
