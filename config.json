@@ -43,9 +43,10 @@
     "translate": {
         "enabled": true
     },
-    "instagram_feeds": {
-        "ig_username": "",
-        "ig_password": "",
-        "accounts": []
+    "instagram": {
+        "enabled": true,
+        "channel_id": null,
+        "channel_name": "socials",
+        "poll_minutes": 10
     }
 }
